@@ -13,10 +13,18 @@ import (
 )
 
 var (
-	ADMURL = "https://api.amazon.com"
 	// ADMPath requires the registration url to be injected
 	ADMPath = "/messaging/registrations/%s/messages"
 )
+
+var ADMURLs = map[string]string{
+	"testing":         "localhost:5556",
+	"development":     "https://api.amazon.com",
+	"staging":         "https://api.amazon.com",
+	"staging_sandbox": "https://api.amazon.com",
+	"sandbox":         "https://api.amazon.com",
+	"production":      "https://api.amazon.com",
+}
 
 // ADMMessage
 // https://developer.amazon.com/public/apis/engage/device-messaging/tech-docs/06-sending-a-message
@@ -30,6 +38,14 @@ type ADMMessage struct {
 // Bytes implements interface Message.
 func (a *ADMMessage) Bytes() ([]byte, error) {
 	return json.Marshal(a)
+}
+
+// NewADMMessage
+func NewADMMessage(id string) *ADMMessage {
+	return &ADMMessage{
+		RegistrationID: id,
+		Data:           make(map[string]string),
+	}
 }
 
 // ADMResponse

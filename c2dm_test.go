@@ -42,8 +42,8 @@ func TestC2DMSend(t *testing.T) {
 	}
 
 	m := C2DMMessage{
-		RegistrationIDs: []string{"abc"},
-		Data:            map[string]interface{}{"a": "b"},
+		RegistrationID: "abc",
+		Data:           map[string]interface{}{"a": "b"},
 	}
 	r, err := c.Send(&m)
 	if err != nil {

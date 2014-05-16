@@ -36,12 +36,12 @@ type C2DMClient struct {
 
 // https://developers.google.com/android/c2dm/?csw=1#push
 type C2DMMessage struct {
-	RegistrationIDs []string               `json:"registration_ids"`
-	CollapseKey     string                 `json:"collapse_key,omitempty"`
-	Data            map[string]interface{} `json:"data"`
-	DelayWhileIdle  bool                   `json:"delay_while_idle,omitempty"`
-	TimeToLive      int                    `json:"time_to_live,omitempty"`
-	DryRun          bool                   `json:"dry_run,omitempty"`
+	RegistrationID string                 `json:"registration_ids"`
+	CollapseKey    string                 `json:"collapse_key,omitempty"`
+	Data           map[string]interface{} `json:"data"`
+	DelayWhileIdle bool                   `json:"delay_while_idle,omitempty"`
+	TimeToLive     int                    `json:"time_to_live,omitempty"`
+	DryRun         bool                   `json:"dry_run,omitempty"`
 }
 
 // Bytes implements interface Message.
@@ -49,19 +49,12 @@ func (g *C2DMMessage) Bytes() ([]byte, error) {
 	return json.Marshal(g)
 }
 
-// C2DMResult ...
-type C2DMResult struct {
+// http://developer.android.com/guide/google/gcm/gcm.html#send-msg
+type C2DMResponse struct {
 	RegistrationID string `json:"registration_id"`
 	Error          error  `json:"error"`
 	RetryAfter     int    `json:"retry_after"`
 	StatusCode     int    `json:"status_code,omitempty"`
-}
-
-// http://developer.android.com/guide/google/gcm/gcm.html#send-msg
-type C2DMResponse struct {
-	Success int           `json:"success"`
-	Failure int           `json:"failure"`
-	Results []*C2DMResult `json:"results"`
 }
 
 // Bytes implements interface Response.
@@ -82,14 +75,24 @@ func NewC2DMClient(url, key string) (*C2DMClient, error) {
 	}, nil
 }
 
+// NewC2DMMessage ...
+func NewC2DMMessage(id string) *C2DMMessage {
+	return &C2DMMessage{
+		TimeToLive:     2419200,
+		DelayWhileIdle: true,
+		RegistrationID: id,
+		Data:           make(map[string]interface{}),
+	}
+}
+
 // Send
 // https://developers.google.com/android/c2dm/
 func (c *C2DMClient) Send(m *C2DMMessage) (*C2DMResponse, error) {
 	log.V(2).Infof("%+v", m)
 
-	if len(m.RegistrationIDs) == 0 {
-		log.Error("no registration ids %+v", m)
-		return nil, fmt.Errorf("no registration ids")
+	if m.RegistrationID == "" {
+		log.Error("no registration id %+v", m)
+		return nil, fmt.Errorf("no registration id")
 	}
 
 	if len(m.Data) == 0 {
@@ -97,27 +100,8 @@ func (c *C2DMClient) Send(m *C2DMMessage) (*C2DMResponse, error) {
 		return nil, fmt.Errorf("no payload")
 	}
 
-	ret := &C2DMResponse{}
-	for _, regID := range m.RegistrationIDs {
-		res, err := c.send(regID, m)
-		if err != nil {
-			log.Error(err)
-			ret.Results = append(ret.Results, &C2DMResult{Error: err})
-			ret.Failure++
-		} else {
-			ret.Results = append(ret.Results, res)
-			if res.Error == nil {
-				ret.Success++
-			}
-		}
-	}
-	return ret, nil
-}
-
-// send does the individual sends.
-func (c *C2DMClient) send(regID string, m *C2DMMessage) (*C2DMResult, error) {
 	data := url.Values{}
-	data.Set("registration_id", regID)
+	data.Set("registration_id", m.RegistrationID)
 	data.Set("collapse_key", m.CollapseKey)
 
 	for k, v := range m.Data {
@@ -155,7 +139,7 @@ func (c *C2DMClient) send(regID string, m *C2DMMessage) (*C2DMResult, error) {
 		return nil, err
 	}
 
-	res := &C2DMResult{StatusCode: resp.StatusCode}
+	res := &C2DMResponse{StatusCode: resp.StatusCode}
 	switch resp.StatusCode {
 	case 503, 500:
 		after := resp.Header.Get("Retry-After")
@@ -164,6 +148,8 @@ func (c *C2DMClient) send(regID string, m *C2DMMessage) (*C2DMResult, error) {
 			log.Error(e)
 		}
 		res.RetryAfter = sleepFor
+		res.Error = fmt.Errorf("500")
+		return res, nil
 	case 401:
 		return nil, fmt.Errorf("unauthorized %s %s", resp.Status, string(body))
 	case 400:
@@ -204,19 +190,24 @@ func (c *C2DMClient) send(regID string, m *C2DMMessage) (*C2DMResult, error) {
 				log.Error(e)
 			}
 			res.RetryAfter = sleepFor
-			return res, fmt.Errorf(errs[1])
+			res.Error = fmt.Errorf(errs[1])
+			return res, nil
 		case "InvalidRegistration":
 			log.Error("c2dm Invalid Registration %+v", m)
-			return res, fmt.Errorf(errs[1])
+			res.Error = fmt.Errorf(errs[1])
+			return res, nil
 		case "NotRegistered":
 			log.Error("c2dm Not Registered %+v", m)
-			return res, fmt.Errorf(errs[1])
+			res.Error = fmt.Errorf(errs[1])
+			return res, nil
 		case "MessageTooBig":
 			log.Error("c2dm Message Too Big %+v", m)
-			return res, fmt.Errorf(errs[1])
+			res.Error = fmt.Errorf(errs[1])
+			return res, nil
 		case "MissingCollapseKey":
 			log.Error("c2dm Missing Collapse Key %+v", m)
-			return res, fmt.Errorf(errs[1])
+			res.Error = fmt.Errorf(errs[1])
+			return res, nil
 		default:
 			log.Error("c2dm Unknown Error %+v", m)
 			after := resp.Header.Get("Retry-After")
@@ -225,7 +216,8 @@ func (c *C2DMClient) send(regID string, m *C2DMMessage) (*C2DMResult, error) {
 				log.Error(e)
 			}
 			res.RetryAfter = sleepFor
-			return res, fmt.Errorf(errs[1])
+			res.Error = fmt.Errorf(errs[1])
+			return res, nil
 		}
 	}
 	return res, nil
