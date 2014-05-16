@@ -17,6 +17,7 @@ var (
 	ADMPath = "/messaging/registrations/%s/messages"
 )
 
+// ADMURLs map environment to adm url.
 var ADMURLs = map[string]string{
 	"testing":         "localhost:5556",
 	"development":     "https://api.amazon.com",
@@ -26,8 +27,7 @@ var ADMURLs = map[string]string{
 	"production":      "https://api.amazon.com",
 }
 
-// ADMMessage
-// https://developer.amazon.com/public/apis/engage/device-messaging/tech-docs/06-sending-a-message
+// ADMMessage https://developer.amazon.com/public/apis/engage/device-messaging/tech-docs/06-sending-a-message
 type ADMMessage struct {
 	Data             map[string]string `json:"data"`
 	ConsolidationKey string            `json:"consolidationKey"`
@@ -40,7 +40,7 @@ func (a *ADMMessage) Bytes() ([]byte, error) {
 	return json.Marshal(a)
 }
 
-// NewADMMessage
+// NewADMMessage ...
 func NewADMMessage(id string) *ADMMessage {
 	return &ADMMessage{
 		RegistrationID: id,
@@ -48,8 +48,7 @@ func NewADMMessage(id string) *ADMMessage {
 	}
 }
 
-// ADMResponse
-// https://developer.amazon.com/public/apis/engage/device-messaging/tech-docs/06-sending-a-message
+// ADMResponse https://developer.amazon.com/public/apis/engage/device-messaging/tech-docs/06-sending-a-message
 type ADMResponse struct {
 	StatusCode int `json:"statusCode"`
 	// The calculated base-64-encoded MD5 checksum of the data field.
@@ -113,6 +112,7 @@ func NewADMClient(url, key string) (*ADMClient, error) {
 
 // Send ...
 func (c *ADMClient) Send(m *ADMMessage) (*ADMResponse, error) {
+	log.V(2).Infof("%+v", m)
 	start := time.Now()
 	defer func() { log.Info("Hermes.ADM.Send ", time.Since(start)) }()
 

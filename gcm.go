@@ -12,6 +12,7 @@ import (
 	log "github.com/golang/glog"
 )
 
+// GCMURLs map environment to gcm url.
 var GCMURLs = map[string]string{
 	"testing":         "localhost:5556",
 	"development":     "https://android.googleapis.com/gcm/send",
@@ -21,7 +22,7 @@ var GCMURLs = map[string]string{
 	"production":      "https://android.googleapis.com/gcm/send",
 }
 
-// http://developer.android.com/guide/google/gcm/gcm.html#send-msg
+// GCMMessage http://developer.android.com/guide/google/gcm/gcm.html#send-msg
 type GCMMessage struct {
 	RegistrationIDs []string `json:"registration_ids"`
 	//NotificationKey string                 `json:"notification_key"`
@@ -37,7 +38,7 @@ func (g *GCMMessage) Bytes() ([]byte, error) {
 	return json.Marshal(g)
 }
 
-// http://developer.android.com/guide/google/gcm/gcm.html#send-msg
+// GCMResponse http://developer.android.com/guide/google/gcm/gcm.html#send-msg
 type GCMResponse struct {
 	MulticastID  int64 `json:"multicast_id"`
 	Success      int   `json:"success"`
@@ -53,18 +54,18 @@ type GCMResponse struct {
 }
 
 // Bytes implements interface Response.
-func (a *GCMResponse) Bytes() ([]byte, error) {
-	return json.Marshal(a)
+func (g *GCMResponse) Bytes() ([]byte, error) {
+	return json.Marshal(g)
 }
 
-// GCMClient
+// GCMClient ...
 type GCMClient struct {
 	key  string
 	http *http.Client
 	url  string
 }
 
-// NewGCMClient
+// NewGCMClient ...
 func NewGCMClient(url, key string) (*GCMClient, error) {
 	if url == "" {
 		return nil, fmt.Errorf("url not provided")
@@ -77,7 +78,7 @@ func NewGCMClient(url, key string) (*GCMClient, error) {
 	}, nil
 }
 
-// NewGCMMessage
+// NewGCMMessage ...
 func NewGCMMessage(ids ...string) *GCMMessage {
 	return &GCMMessage{
 		TimeToLive:      2419200,
@@ -87,23 +88,22 @@ func NewGCMMessage(ids ...string) *GCMMessage {
 	}
 }
 
-// AddRecipients
-func (m *GCMMessage) AddRecipients(ids ...string) {
-	m.RegistrationIDs = append(m.RegistrationIDs, ids...)
+// AddRecipients ...
+func (g *GCMMessage) AddRecipients(ids ...string) {
+	g.RegistrationIDs = append(g.RegistrationIDs, ids...)
 }
 
-// SetPayload
-func (m *GCMMessage) SetPayload(key string, value string) {
-	if m.Data == nil {
-		m.Data = make(map[string]interface{})
+// SetPayload ...
+func (g *GCMMessage) SetPayload(key string, value string) {
+	if g.Data == nil {
+		g.Data = make(map[string]interface{})
 	}
-	m.Data[key] = value
+	g.Data[key] = value
 }
 
-// Send
+// Send ...
 func (c *GCMClient) Send(m *GCMMessage) (*GCMResponse, error) {
 	log.V(2).Infof("%+v", m)
-
 	start := time.Now()
 	defer func() { log.Info("Hermes.GCM.Send ", time.Since(start)) }()
 
@@ -159,10 +159,10 @@ func (c *GCMClient) Send(m *GCMMessage) (*GCMResponse, error) {
 	return &ret, err
 }
 
-// Return the indexes of successfully sent registration ids
-func (r *GCMResponse) SuccessIndexes() []int {
-	ret := make([]int, 0, r.Success)
-	for i, result := range r.Results {
+// SuccessIndexes return the indexes of successfully sent registration ids.
+func (g *GCMResponse) SuccessIndexes() []int {
+	ret := make([]int, 0, g.Success)
+	for i, result := range g.Results {
 		if result.Error == "" {
 			ret = append(ret, i)
 		}
@@ -170,10 +170,10 @@ func (r *GCMResponse) SuccessIndexes() []int {
 	return ret
 }
 
-// Return the indexes of failed sent registration ids
-func (r *GCMResponse) ErrorIndexes() []int {
-	ret := make([]int, 0, r.Failure)
-	for i, result := range r.Results {
+// ErrorIndexes return the indexes of failed sent registration ids.
+func (g *GCMResponse) ErrorIndexes() []int {
+	ret := make([]int, 0, g.Failure)
+	for i, result := range g.Results {
 		if result.Error != "" {
 			ret = append(ret, i)
 		}
@@ -181,10 +181,10 @@ func (r *GCMResponse) ErrorIndexes() []int {
 	return ret
 }
 
-// Return the indexes of registration ids which need update
-func (r *GCMResponse) RefreshIndexes() []int {
-	ret := make([]int, 0, r.CanonicalIDs)
-	for i, result := range r.Results {
+// RefreshIndexes return the indexes of registration ids which need update.
+func (g *GCMResponse) RefreshIndexes() []int {
+	ret := make([]int, 0, g.CanonicalIDs)
+	for i, result := range g.Results {
 		if result.RegistrationID != "" {
 			ret = append(ret, i)
 		}

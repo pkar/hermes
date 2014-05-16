@@ -15,10 +15,12 @@ import (
 )
 
 const (
+	// maxPoolSize is the number of sockets to open per
+	// app.
 	maxPoolSize = 20
 )
 
-// apnsURLs
+// APNSURLs map environment to gateway.
 var APNSURLs = map[string]string{
 	"testing":         "localhost:5555",
 	"development":     "gateway.sandbox.push.apple.com:2195",
@@ -28,7 +30,7 @@ var APNSURLs = map[string]string{
 	"production":      "gateway.push.apple.com:2195",
 }
 
-// apnsStatusCodes
+// apnsStatusCodes are codes to message from apns.
 var apnsStatusCodes = map[uint8]string{
 	0:   "No errors encountered",
 	1:   "Processing error",
@@ -43,8 +45,7 @@ var apnsStatusCodes = map[uint8]string{
 	255: "None (unknown)",
 }
 
-// APNSMessage
-// Alert is an interface here because it supports either a string
+// APNSMessage alert is an interface here because it supports either a string
 // or a dictionary, represented within by an AlertDictionary struct.
 type APNSMessage struct {
 	Alert interface{} `json:"alert,omitempty"`
@@ -57,7 +58,7 @@ func (a *APNSMessage) Bytes() ([]byte, error) {
 	return json.Marshal(a)
 }
 
-// APNSPushNotification
+// APNSPushNotification ...
 type APNSPushNotification struct {
 	Identifier  int32
 	Expiry      uint32
@@ -84,8 +85,8 @@ func (a *APNSResponse) Bytes() ([]byte, error) {
 	return json.Marshal(a)
 }
 
-// APNSAlertDictionary
-// From the APN docs: "Use the ... alert dictionary in general only if you absolutely need to."
+// APNSAlertDictionary From the APN docs:
+// "Use the ... alert dictionary in general only if you absolutely need to."
 // The AlertDictionary is suitable for specific localization needs.
 type APNSAlertDictionary struct {
 	Body         string   `json:"body,omitempty"`
@@ -95,7 +96,7 @@ type APNSAlertDictionary struct {
 	LaunchImage  string   `json:"launch-image,omitempty"`
 }
 
-// APNSClient
+// APNSClient ...
 type APNSClient struct {
 	Certificate string
 	Key         string
@@ -103,24 +104,24 @@ type APNSClient struct {
 	Pool        *APNSPool
 }
 
-// APNSConnPool
+// APNSPool ...
 type APNSPool struct {
 	pool     chan *APNSConn
 	nClients int
 }
 
-// APNSConn
+// APNSConn ...
 type APNSConn struct {
 	gateway        string
 	readTimeout    time.Duration
 	tlsConn        *tls.Conn
 	tlsCfg         tls.Config
-	transactionId  uint32
+	transactionID  uint32
 	connected      bool
 	maxPayloadSize int // default to 256 as per Apple specifications (June 9 2012)
 }
 
-// NewAPNSClient
+// NewAPNSClient ...
 func NewAPNSClient(gateway, cert, key string) (*APNSClient, error) {
 	start := time.Now()
 	defer func() { log.Info("Hermes.APNS.NewAPNSClient ", time.Since(start)) }()
@@ -165,7 +166,7 @@ func newAPNSConn(gateway, cert, key string) (*APNSConn, error) {
 	return conn, nil
 }
 
-// newAPNSPool
+// newAPNSPool ...
 func newAPNSPool(gateway, certificate, key string) (*APNSPool, error) {
 	start := time.Now()
 	defer func() { log.Info("Hermes.APNS.newAPNSPool ", time.Since(start)) }()
@@ -186,7 +187,7 @@ func newAPNSPool(gateway, certificate, key string) (*APNSPool, error) {
 	return &APNSPool{pool, n}, nil
 }
 
-// NewAPNSPushNotification
+// NewAPNSPushNotification ...
 func NewAPNSPushNotification(deviceToken string, ap *APNSMessage, expiry uint32) (*APNSPushNotification, error) {
 	/*
 		if expiry == 0 {
@@ -217,7 +218,7 @@ func (a *APNSPushNotification) Set(key string, value interface{}) {
 	a.payload[key] = value
 }
 
-// Close
+// Close ...
 func (c *APNSConn) Close() error {
 	var err error
 	if c.tlsConn != nil {
@@ -227,7 +228,7 @@ func (c *APNSConn) Close() error {
 	return err
 }
 
-// connect
+// connect ...
 func (c *APNSConn) connect() (err error) {
 	start := time.Now()
 	defer func() { log.Info("Hermes.APNS.connect ", time.Since(start)) }()
@@ -255,18 +256,19 @@ func (c *APNSConn) connect() (err error) {
 	return err
 }
 
-// Get
+// Get ...
 func (p *APNSPool) Get() *APNSConn {
 	return <-p.pool
 }
 
-// Release
+// Release ...
 func (p *APNSPool) Release(conn *APNSConn) {
 	p.pool <- conn
 }
 
-// Send
+// Send ...
 func (c *APNSClient) Send(apn *APNSPushNotification) (*APNSResponse, error) {
+	log.V(2).Infof("%+v", apn)
 	start := time.Now()
 	defer func() { log.Info("Hermes.APNS.Send ", time.Since(start)) }()
 
