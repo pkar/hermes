@@ -21,16 +21,16 @@ var APNSFeedbackChannel = make(chan *FeedbackResponse)
 // If there's nothing to read, ShutdownChannel gets a true.
 var APNSShutdownChannel = make(chan bool)
 
-// FeedbackResponse
+// FeedbackResponse ...
 type FeedbackResponse struct {
 	Timestamp   uint32
 	TokenLength uint16
 	DeviceToken string
 }
 
-// Feedback runs APNS feedback waiting for errors.
-func (client *APNSClient) RunFeedback() error {
-	go client.ListenForFeedback()
+// RunFeedback runs APNS feedback waiting for errors.
+func (a *APNSClient) RunFeedback() error {
+	go a.ListenForFeedback()
 	go func() {
 		for {
 			select {
@@ -44,12 +44,9 @@ func (client *APNSClient) RunFeedback() error {
 	return nil
 }
 
-// Connect to the Apple Feedback Service and check for feedback.
-// Feedback consists of device identifiers that should
-// not be sent to in the future; Apple does monitor that
-// you respect this so you should be checking it ;)
-func (c *APNSClient) ListenForFeedback() (err error) {
-	cert, err := tls.LoadX509KeyPair(c.Certificate, c.Key)
+// ListenForFeedback connects to the Apple Feedback Service and checks for feedback.
+func (a *APNSClient) ListenForFeedback() (err error) {
+	cert, err := tls.LoadX509KeyPair(a.Certificate, a.Key)
 	if err != nil {
 		log.Error(err)
 		return err
@@ -59,7 +56,7 @@ func (c *APNSClient) ListenForFeedback() (err error) {
 		Certificates: []tls.Certificate{cert},
 	}
 
-	conn, err := net.Dial("tcp", c.Gateway)
+	conn, err := net.Dial("tcp", a.Gateway)
 	if err != nil {
 		log.Error(err)
 		return err
@@ -93,7 +90,7 @@ func (c *APNSClient) ListenForFeedback() (err error) {
 		binary.Read(r, binary.BigEndian, &tokenLength)
 		binary.Read(r, binary.BigEndian, &deviceToken)
 		if tokenLength != 32 {
-			err := errors.New("Token length should be equal to 32, but isn't.")
+			err := errors.New("token length should be equal to 32, but isn't")
 			log.Error(err)
 			return err
 		}

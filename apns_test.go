@@ -76,8 +76,8 @@ func TestAPNSSend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.err != nil {
-		t.Fatal(resp.err)
+	if resp.Error != nil {
+		t.Fatal(resp.Error)
 	}
 	if resp.Status != 0 {
 		t.Fatalf("%+v", resp)

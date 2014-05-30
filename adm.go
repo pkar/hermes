@@ -50,7 +50,8 @@ func NewADMMessage(id string) *ADMMessage {
 
 // ADMResponse https://developer.amazon.com/public/apis/engage/device-messaging/tech-docs/06-sending-a-message
 type ADMResponse struct {
-	StatusCode int `json:"statusCode"`
+	StatusCode int   `json:"statusCode"`
+	Error      error `json:"error"`
 	// The calculated base-64-encoded MD5 checksum of the data field.
 	MD5 string `json:"md5"`
 	// A value created by ADM that uniquely identifies the request.
@@ -62,7 +63,7 @@ type ADMResponse struct {
 	// This value can be either an integer number of seconds (in decimal) after
 	// the time of the response or an HTTP-format date. See the HTTP/1.1
 	// specification, section 14.37, for possible formats for this value.
-	RetryAfter interface{} `json:"retryAfter"`
+	RetryAfter int `json:"retryAfter"`
 	// The current registration ID of the app instance.
 	// If this value is different than the one passed in by
 	// your server, your server must update its records to use this value.
@@ -89,6 +90,22 @@ type ADMResponse struct {
 // Bytes implements interface Response.
 func (a *ADMResponse) Bytes() ([]byte, error) {
 	return json.Marshal(a)
+}
+
+// Retry implements interface Response.
+func (a *ADMResponse) Retry() int {
+	return a.RetryAfter
+}
+
+// UpdateToken implements interface Response.
+func (a *ADMResponse) UpdateToken() bool {
+	if a == nil {
+		return false
+	}
+	if a.Error == ErrRemoveToken || a.Error == ErrUpdateToken {
+		return true
+	}
+	return false
 }
 
 // ADMClient ...
@@ -145,30 +162,33 @@ func (c *ADMClient) Send(m *ADMMessage) (*ADMResponse, error) {
 		return nil, err
 	}
 
-	ret := &ADMResponse{}
+	log.V(2).Infof("%+v", string(body))
+	ret := &ADMResponse{StatusCode: resp.StatusCode}
 	switch resp.StatusCode {
 	case 503, 500:
 		// n/a
+		ret.RetryAfter = 0
 		after := resp.Header.Get("Retry-After")
-		ret.RetryAfter = after
 		i, err := strconv.Atoi(after)
 		if err != nil {
 			ret.RetryAfter = i
 		}
+		ret.Error = ErrRetry
 	case 429:
 		// MaxRateExceeded
-		after := resp.Header.Get("Retry-After")
-		ret.RetryAfter = after
-		i, err := strconv.Atoi(after)
-		if err != nil {
-			ret.RetryAfter = i
-		}
-
+		ret.RetryAfter = 0
 		err = json.Unmarshal(body, &ret)
 		if err != nil {
 			log.Error(err, string(body))
 			return nil, err
 		}
+
+		after := resp.Header.Get("Retry-After")
+		i, err := strconv.Atoi(after)
+		if err != nil {
+			ret.RetryAfter = i
+		}
+		ret.Error = ErrRetry
 	case 413:
 		// MessageTooLarge
 		err = json.Unmarshal(body, &ret)
@@ -183,11 +203,16 @@ func (c *ADMClient) Send(m *ADMMessage) (*ADMResponse, error) {
 			log.Error(err, string(body))
 			return nil, err
 		}
+		ret.Error = ErrTokenExpired
 	case 400:
 		err = json.Unmarshal(body, &ret)
 		if err != nil {
 			log.Error(err, string(body))
 			return nil, err
+		}
+		switch ret.Reason {
+		case "InvalidRegistrationId":
+			ret.Error = ErrRemoveToken
 		}
 	case 200:
 		err = json.Unmarshal(body, &ret)
@@ -196,10 +221,16 @@ func (c *ADMClient) Send(m *ADMMessage) (*ADMResponse, error) {
 			return nil, err
 		}
 	default:
-		return nil, fmt.Errorf("unknown response: %d %s", resp.StatusCode, string(body))
+		after := resp.Header.Get("Retry-After")
+		i, err := strconv.Atoi(after)
+		if err != nil {
+			ret.RetryAfter = i
+		}
+		log.Errorf("unknown response: %d %s", resp.StatusCode, string(body))
+		ret.Error = ErrRetry
 	}
 	ret.RequestID = resp.Header.Get("X-Amzn-RequestId")
 	ret.MD5 = resp.Header.Get("X-Amzn-Data-md5")
 	ret.StatusCode = resp.StatusCode
-	return ret, nil
+	return ret, ret.Error
 }

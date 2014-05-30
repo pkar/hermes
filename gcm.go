@@ -49,13 +49,31 @@ type GCMResponse struct {
 		RegistrationID string `json:"registration_id"`
 		Error          string `json:"error"`
 	} `json:"results"`
-	StatusCode int `json:"status_code,omitempty"`
-	RetryAfter int `json:"retry_after,omitempty"`
+	StatusCode int `json:"status_code"`
+	// set to -1 initially, if >= 0 then retry.
+	RetryAfter int   `json:"retry_after"`
+	Error      error `json:"error"`
 }
 
 // Bytes implements interface Response.
 func (g *GCMResponse) Bytes() ([]byte, error) {
 	return json.Marshal(g)
+}
+
+// Retry implements interface Response.
+func (g *GCMResponse) Retry() int {
+	return g.RetryAfter
+}
+
+// UpdateToken implements interface Response.
+func (g *GCMResponse) UpdateToken() bool {
+	if g == nil {
+		return false
+	}
+	if g.Error == ErrRemoveToken || g.Error == ErrUpdateToken {
+		return true
+	}
+	return false
 }
 
 // GCMClient ...
@@ -133,7 +151,7 @@ func (c *GCMClient) Send(m *GCMMessage) (*GCMResponse, error) {
 		return nil, err
 	}
 
-	ret := GCMResponse{StatusCode: resp.StatusCode}
+	ret := GCMResponse{RetryAfter: -1}
 
 	switch resp.StatusCode {
 	case 503, 500:
@@ -143,6 +161,7 @@ func (c *GCMClient) Send(m *GCMMessage) (*GCMResponse, error) {
 			log.Error(e)
 		}
 		ret.RetryAfter = sleepFor
+		ret.Error = ErrRetry
 	case 401:
 		return nil, fmt.Errorf("unauthorized %s %s", resp.Status, string(body))
 	case 400:
@@ -153,10 +172,29 @@ func (c *GCMClient) Send(m *GCMMessage) (*GCMResponse, error) {
 			log.Error(err, string(body))
 		}
 	default:
-		return nil, fmt.Errorf("unknown Error %s %s", resp.Status, string(body))
+		after := resp.Header.Get("Retry-After")
+		sleepFor, e := strconv.Atoi(after)
+		if e != nil {
+			log.Error(e)
+		}
+		ret.RetryAfter = sleepFor
+		ret.Error = ErrRetry
+		log.Errorf("unknown error %s %s", resp.Status, string(body))
+		return &ret, ret.Error
 	}
 
-	return &ret, err
+	refresh := ret.RefreshIndexes()
+	if len(refresh) > 0 {
+		ret.Error = ErrUpdateToken
+	}
+
+	errs := ret.ErrorIndexes()
+	if len(errs) > 0 {
+		ret.Error = ErrRemoveToken
+	}
+
+	ret.StatusCode = resp.StatusCode
+	return &ret, ret.Error
 }
 
 // SuccessIndexes return the indexes of successfully sent registration ids.

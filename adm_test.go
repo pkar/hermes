@@ -57,6 +57,6 @@ func TestADMSend(t *testing.T) {
 		t.Fatal(err)
 	}
 	if r.StatusCode != 200 {
-		t.Fatal("didn't get back 200 got: %+v", r)
+		t.Fatalf("didn't get back 200 got: %+v", r)
 	}
 }

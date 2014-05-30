@@ -54,13 +54,29 @@ func (g *C2DMMessage) Bytes() ([]byte, error) {
 type C2DMResponse struct {
 	RegistrationID string `json:"registration_id"`
 	Error          error  `json:"error"`
-	RetryAfter     int    `json:"retry_after"`
 	StatusCode     int    `json:"status_code"`
+	RetryAfter     int    `json:"retry_after"`
 }
 
 // Bytes implements interface Response.
-func (a *C2DMResponse) Bytes() ([]byte, error) {
-	return json.Marshal(a)
+func (c *C2DMResponse) Bytes() ([]byte, error) {
+	return json.Marshal(c)
+}
+
+// Retry implements interface Response.
+func (c *C2DMResponse) Retry() int {
+	return c.RetryAfter
+}
+
+// UpdateToken implements interface Response.
+func (c *C2DMResponse) UpdateToken() bool {
+	if c == nil {
+		return false
+	}
+	if c.Error == ErrRemoveToken || c.Error == ErrUpdateToken {
+		return true
+	}
+	return false
 }
 
 // NewC2DMClient ...
@@ -89,7 +105,7 @@ func NewC2DMMessage(id string) *C2DMMessage {
 func (c *C2DMClient) Send(m *C2DMMessage) (*C2DMResponse, error) {
 	log.V(2).Infof("%+v", m)
 	start := time.Now()
-	defer func() { log.Info("Hermes.ADM.Send ", time.Since(start)) }()
+	defer func() { log.Info("Hermes.C2DM.Send ", time.Since(start)) }()
 
 	if m.RegistrationID == "" {
 		log.Errorf("no registration id %+v", m)
@@ -103,6 +119,9 @@ func (c *C2DMClient) Send(m *C2DMMessage) (*C2DMResponse, error) {
 
 	data := url.Values{}
 	data.Set("registration_id", m.RegistrationID)
+	if m.CollapseKey == "" {
+		m.CollapseKey = "piglet"
+	}
 	data.Set("collapse_key", m.CollapseKey)
 
 	for k, v := range m.Data {
@@ -140,7 +159,7 @@ func (c *C2DMClient) Send(m *C2DMMessage) (*C2DMResponse, error) {
 		return nil, err
 	}
 
-	res := &C2DMResponse{StatusCode: resp.StatusCode}
+	res := &C2DMResponse{RetryAfter: -1}
 	switch resp.StatusCode {
 	case 503, 500:
 		after := resp.Header.Get("Retry-After")
@@ -149,8 +168,8 @@ func (c *C2DMClient) Send(m *C2DMMessage) (*C2DMResponse, error) {
 			log.Error(e)
 		}
 		res.RetryAfter = sleepFor
-		res.Error = fmt.Errorf("500")
-		return res, nil
+		res.Error = ErrRetry
+		return res, res.Error
 	case 401:
 		return nil, fmt.Errorf("unauthorized %s %s", resp.Status, string(body))
 	case 400:
@@ -172,7 +191,7 @@ func (c *C2DMClient) Send(m *C2DMMessage) (*C2DMResponse, error) {
 		switch errs[1] {
 		case "QuotaExceeded":
 			// Too many messages, retry after a while.
-			log.Errorf("c2dm Quota Exceeded %+v", m)
+			log.Errorf("c2dm Quota Exceeded %+v %s", m, errs[1])
 
 			after := resp.Header.Get("Retry-After")
 			sleepFor, e := strconv.Atoi(after)
@@ -180,10 +199,10 @@ func (c *C2DMClient) Send(m *C2DMMessage) (*C2DMResponse, error) {
 				log.Error(e)
 			}
 			res.RetryAfter = sleepFor
-			return res, fmt.Errorf(errs[1])
+			res.Error = ErrRetry
 		case "DeviceQuotaExceeded":
 			//  Too many messages sent by the sender to a specific device. Retry after a while.
-			log.Errorf("c2dm Device Quota Exceeded %+v", m)
+			log.Errorf("c2dm Device Quota Exceeded %+v %s", m, errs[1])
 
 			after := resp.Header.Get("Retry-After")
 			sleepFor, e := strconv.Atoi(after)
@@ -191,35 +210,29 @@ func (c *C2DMClient) Send(m *C2DMMessage) (*C2DMResponse, error) {
 				log.Error(e)
 			}
 			res.RetryAfter = sleepFor
-			res.Error = fmt.Errorf(errs[1])
-			return res, nil
+			res.Error = ErrRetry
 		case "InvalidRegistration":
-			log.Errorf("c2dm Invalid Registration %+v", m)
-			res.Error = fmt.Errorf(errs[1])
-			return res, nil
+			log.Errorf("c2dm Invalid Registration %+v %s", m, errs[1])
+			res.Error = ErrRemoveToken
 		case "NotRegistered":
-			log.Errorf("c2dm Not Registered %+v", m)
-			res.Error = fmt.Errorf(errs[1])
-			return res, nil
+			log.Errorf("c2dm not registered %+v %s", m, errs[1])
+			res.Error = ErrRemoveToken
 		case "MessageTooBig":
-			log.Errorf("c2dm Message Too Big %+v", m)
+			log.Errorf("c2dm Message Too Big %+v %s", m, errs[1])
 			res.Error = fmt.Errorf(errs[1])
-			return res, nil
 		case "MissingCollapseKey":
-			log.Errorf("c2dm Missing Collapse Key %+v", m)
+			log.Errorf("c2dm Missing Collapse Key %+v %s", m, errs[1])
 			res.Error = fmt.Errorf(errs[1])
-			return res, nil
 		default:
-			log.Errorf("c2dm Unknown Error %+v", m)
+			log.Errorf("c2dm Unknown Error %+v %s", m, errs[1])
 			after := resp.Header.Get("Retry-After")
 			sleepFor, e := strconv.Atoi(after)
 			if e != nil {
 				log.Error(e)
 			}
 			res.RetryAfter = sleepFor
-			res.Error = fmt.Errorf(errs[1])
-			return res, nil
+			res.Error = ErrRetry
 		}
 	}
-	return res, nil
+	return res, res.Error
 }

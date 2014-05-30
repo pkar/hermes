@@ -30,8 +30,8 @@ var APNSURLs = map[string]string{
 	"production":      "gateway.push.apple.com:2195",
 }
 
-// apnsStatusCodes are codes to message from apns.
-var apnsStatusCodes = map[uint8]string{
+// APNSStatusCodes are codes to message from apns.
+var APNSStatusCodes = map[uint8]string{
 	0:   "No errors encountered",
 	1:   "Processing error",
 	2:   "Missing device token",
@@ -77,12 +77,29 @@ type APNSResponse struct {
 	Command    uint8 `json:"command"`
 	Status     uint8 `json:"status"`
 	Identifier int32 `json:"identifier"`
-	err        error `json:"err"`
+	Error      error `json:"err"`
+	RetryAfter int   `json:"retryAfter"`
 }
 
 // Bytes implements interface Response.
 func (a *APNSResponse) Bytes() ([]byte, error) {
 	return json.Marshal(a)
+}
+
+// Retry implements interface Response.
+func (a *APNSResponse) Retry() int {
+	return a.RetryAfter
+}
+
+// UpdateToken implements interface Response.
+func (a *APNSResponse) UpdateToken() bool {
+	if a == nil {
+		return false
+	}
+	if a.Error == ErrRemoveToken || a.Error == ErrUpdateToken {
+		return true
+	}
+	return false
 }
 
 // APNSAlertDictionary From the APN docs:
@@ -124,7 +141,7 @@ type APNSConn struct {
 // NewAPNSClient ...
 func NewAPNSClient(gateway, cert, key string) (*APNSClient, error) {
 	start := time.Now()
-	defer func() { log.Info("Hermes.APNS.NewAPNSClient ", time.Since(start)) }()
+	defer func() { log.V(1).Info("Hermes.APNS.NewAPNSClient ", time.Since(start)) }()
 
 	p, err := newAPNSPool(gateway, cert, key)
 	if err != nil {
@@ -169,7 +186,7 @@ func newAPNSConn(gateway, cert, key string) (*APNSConn, error) {
 // newAPNSPool ...
 func newAPNSPool(gateway, certificate, key string) (*APNSPool, error) {
 	start := time.Now()
-	defer func() { log.Info("Hermes.APNS.newAPNSPool ", time.Since(start)) }()
+	defer func() { log.V(1).Info("Hermes.APNS.newAPNSPool ", time.Since(start)) }()
 
 	pool := make(chan *APNSConn, maxPoolSize)
 	n := 0
@@ -231,7 +248,7 @@ func (c *APNSConn) Close() error {
 // connect ...
 func (c *APNSConn) connect() (err error) {
 	start := time.Now()
-	defer func() { log.Info("Hermes.APNS.connect ", time.Since(start)) }()
+	defer func() { log.V(1).Info("Hermes.APNS.connect ", time.Since(start)) }()
 
 	if c.connected {
 		return nil
@@ -304,11 +321,12 @@ func (c *APNSClient) Send(apn *APNSPushNotification) (*APNSResponse, error) {
 
 	apr := &APNSResponse{
 		Identifier: apn.Identifier,
+		RetryAfter: -1,
 	}
 
 	_, err = conn.tlsConn.Write(buffer.Bytes())
 	if err != nil {
-		log.Error(err)
+		log.Errorf("%s %+v", err, apn)
 		conn.connected = false
 		return nil, err
 	}
@@ -329,26 +347,33 @@ func (c *APNSClient) Send(apn *APNSPushNotification) (*APNSResponse, error) {
 		switch status {
 		case 0:
 			return apr, nil
-		case 1, 2, 3, 4, 5, 6, 7, 8:
+		case 1:
 			//1:   "Processing error"
+			err := fmt.Errorf("error code:%s %v", APNSStatusCodes[status], hex.EncodeToString(read[:n]))
+			log.Error(err)
+			apr.Error = err
+			apr.RetryAfter = 0
+			apr.Error = ErrRetry
+		case 2, 3, 4, 6, 7:
 			//2:   "Missing Device Token",
 			//3:   "Missing Topic",
 			//4:   "Missing Payload",
-			//5:   "Invalid Token Size",
 			//6:   "Invalid Topic Size",
 			//7:   "Invalid Payload Size",
-			//8:   "Invalid Token",
-			err := fmt.Errorf("error code:%s %v", apnsStatusCodes[status], hex.EncodeToString(read[:n]))
+			err := fmt.Errorf("error code:%s %v", APNSStatusCodes[status], hex.EncodeToString(read[:n]))
 			log.Error(err)
-			apr.err = err
-			return apr, nil
+			apr.Error = err
+		case 5, 8:
+			//8:   "Invalid Token",
+			//5:   "Invalid Token Size",
+			log.Error(ErrRemoveToken)
+			apr.Error = ErrRemoveToken
 		case 255:
 			err := fmt.Errorf("unknown error code %v", hex.EncodeToString(read[:n]))
 			log.Error(err)
-			apr.err = err
-			return apr, err
+			apr.Error = err
 		}
 	}
 
-	return apr, nil
+	return apr, apr.Error
 }
