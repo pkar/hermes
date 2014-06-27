@@ -14,7 +14,7 @@ import (
 
 // GCMURLs map environment to gcm url.
 var GCMURLs = map[string]string{
-	"testing":         "localhost:5556",
+	"testing":         "http://localhost:5556",
 	"development":     "https://android.googleapis.com/gcm/send",
 	"staging":         "https://android.googleapis.com/gcm/send",
 	"staging_sandbox": "https://android.googleapis.com/gcm/send",
@@ -38,18 +38,21 @@ func (g *GCMMessage) Bytes() ([]byte, error) {
 	return json.Marshal(g)
 }
 
+// GCMResult embedded response from gcm.
+type GCMResult struct {
+	MessageID      string `json:"message_id"`
+	RegistrationID string `json:"registration_id"`
+	Error          string `json:"error"`
+}
+
 // GCMResponse http://developer.android.com/guide/google/gcm/gcm.html#send-msg
 type GCMResponse struct {
-	MulticastID  int64 `json:"multicast_id"`
-	Success      int   `json:"success"`
-	Failure      int   `json:"failure"`
-	CanonicalIDs int   `json:"canonical_ids"`
-	Results      []struct {
-		MessageID      string `json:"message_id"`
-		RegistrationID string `json:"registration_id"`
-		Error          string `json:"error"`
-	} `json:"results"`
-	StatusCode int `json:"status_code"`
+	MulticastID  int64        `json:"multicast_id"`
+	Success      int          `json:"success"`
+	Failure      int          `json:"failure"`
+	CanonicalIDs int          `json:"canonical_ids"`
+	Results      []*GCMResult `json:"results"`
+	StatusCode   int          `json:"status_code"`
 	// set to -1 initially, if >= 0 then retry.
 	RetryAfter int   `json:"retry_after"`
 	Error      error `json:"error"`

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"net"
 	"time"
@@ -308,7 +309,7 @@ func (c *APNSClient) Send(apn *APNSPushNotification) (*APNSResponse, error) {
 		return nil, err
 	}
 	if len(payload) > 256 {
-		return nil, fmt.Errorf("payload larger than 256, got %d", len(payload))
+		return nil, fmt.Errorf("payload larger than 256, got %d %s", len(payload), payload)
 	}
 	buffer := bytes.NewBuffer([]byte{})
 	binary.Write(buffer, binary.BigEndian, uint8(1))           // command
@@ -328,7 +329,9 @@ func (c *APNSClient) Send(apn *APNSPushNotification) (*APNSResponse, error) {
 	if err != nil {
 		log.Errorf("%s %+v", err, apn)
 		conn.connected = false
-		return nil, err
+		apr.RetryAfter = 5
+		apr.Error = ErrRetry
+		return apr, apr.Error
 	}
 	conn.tlsConn.SetReadDeadline(time.Now().Add(conn.readTimeout))
 	read := [6]byte{}
@@ -338,6 +341,13 @@ func (c *APNSClient) Send(apn *APNSPushNotification) (*APNSResponse, error) {
 			// Success, apns doesn't usually return a response if successful.
 			// Only issue is, is timeout length long enough (150ms) for err response.
 			return apr, nil
+		}
+		log.Error(err)
+		if err == io.EOF {
+			conn.connected = false
+			apr.RetryAfter = 5
+			apr.Error = ErrRetry
+			return apr, apr.Error
 		}
 		return nil, err
 	}
@@ -351,8 +361,7 @@ func (c *APNSClient) Send(apn *APNSPushNotification) (*APNSResponse, error) {
 			//1:   "Processing error"
 			err := fmt.Errorf("error code:%s %v", APNSStatusCodes[status], hex.EncodeToString(read[:n]))
 			log.Error(err)
-			apr.Error = err
-			apr.RetryAfter = 0
+			apr.RetryAfter = 5
 			apr.Error = ErrRetry
 		case 2, 3, 4, 6, 7:
 			//2:   "Missing Device Token",
@@ -366,9 +375,9 @@ func (c *APNSClient) Send(apn *APNSPushNotification) (*APNSResponse, error) {
 		case 5, 8:
 			//8:   "Invalid Token",
 			//5:   "Invalid Token Size",
-			log.Error(ErrRemoveToken)
+			log.Errorf("error code:%s %v", APNSStatusCodes[status], hex.EncodeToString(read[:n]))
 			apr.Error = ErrRemoveToken
-		case 255:
+		default:
 			err := fmt.Errorf("unknown error code %v", hex.EncodeToString(read[:n]))
 			log.Error(err)
 			apr.Error = err
