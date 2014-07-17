@@ -110,7 +110,7 @@ func (a *ADMResponse) UpdateToken() bool {
 
 // ADMClient ...
 type ADMClient struct {
-	key  string
+	Key  string
 	http *http.Client
 	url  string
 }
@@ -121,7 +121,7 @@ func NewADMClient(url, key string) (*ADMClient, error) {
 		return nil, fmt.Errorf("url not provided")
 	}
 	return &ADMClient{
-		key:  key,
+		Key:  key,
 		http: &http.Client{},
 		url:  url,
 	}, nil
@@ -143,7 +143,7 @@ func (c *ADMClient) Send(m *ADMMessage) (*ADMResponse, error) {
 		log.Error(err)
 		return nil, err
 	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.key))
+	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.Key))
 	request.Header.Add("Content-Type", "application/json")
 	request.Header.Add("Accept", "application/json")
 	request.Header.Add("X-Amzn-Type-Version ", "com.amazon.device.messaging.ADMMessage@1.0")

@@ -33,7 +33,7 @@ func TestNewADMClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.key != "abc" {
+	if c.Key != "abc" {
 		t.Fatal("client not initialized")
 	}
 }
