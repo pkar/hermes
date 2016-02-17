@@ -116,10 +116,11 @@ type APNSAlertDictionary struct {
 
 // APNSClient ...
 type APNSClient struct {
-	Certificate string
-	Key         string
-	Gateway     string
-	Pool        *APNSPool
+	Certificate        string
+	Key                string
+	Gateway            string
+	Pool               *APNSPool
+	InsecureSkipVerify bool
 }
 
 // APNSPool ...

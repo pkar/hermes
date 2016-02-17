@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net"
 	"time"
 
@@ -46,14 +47,15 @@ func (a *APNSClient) RunFeedback() error {
 
 // ListenForFeedback connects to the Apple Feedback Service and checks for feedback.
 func (a *APNSClient) ListenForFeedback() (err error) {
-	cert, err := tls.LoadX509KeyPair(a.Certificate, a.Key)
+	cert, err := tls.X509KeyPair([]byte(a.Certificate), []byte(a.Key))
 	if err != nil {
 		log.Error(err)
 		return err
 	}
 
 	conf := &tls.Config{
-		Certificates: []tls.Certificate{cert},
+		InsecureSkipVerify: a.InsecureSkipVerify,
+		Certificates:       []tls.Certificate{cert},
 	}
 
 	conn, err := net.Dial("tcp", a.Gateway)
@@ -90,9 +92,9 @@ func (a *APNSClient) ListenForFeedback() (err error) {
 		binary.Read(r, binary.BigEndian, &tokenLength)
 		binary.Read(r, binary.BigEndian, &deviceToken)
 		if tokenLength != 32 {
-			err := errors.New("token length should be equal to 32, but isn't")
+			err := errors.New(fmt.Sprintf("token length should be equal to 32, got %d", tokenLength))
 			log.Error(err)
-			return err
+			continue
 		}
 		resp.DeviceToken = hex.EncodeToString(deviceToken)
 		resp.TokenLength = tokenLength
