@@ -47,7 +47,7 @@ func init() {
 }
 
 func TestNewGCMClient(t *testing.T) {
-	c, err := NewGCMClient(GCMServer.URL, "abc")
+	c, err := NewGCMClient(GCMServer.URL, "abc", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestNewGCMClient(t *testing.T) {
 }
 
 func TestGCMSend(t *testing.T) {
-	c, err := NewGCMClient(GCMServer.URL, "abc")
+	c, err := NewGCMClient(GCMServer.URL, "abc", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestGCMSend(t *testing.T) {
 }
 
 func TestGCMRemoveToken(t *testing.T) {
-	c, err := NewGCMClient(GCMServerRemoveToken.URL, "abc")
+	c, err := NewGCMClient(GCMServerRemoveToken.URL, "abc", "")
 	if err != nil {
 		t.Fatal(err)
 	}

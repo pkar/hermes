@@ -5,21 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
-
-	log "github.com/golang/glog"
 )
 
 // GCMURLs map environment to gcm url.
 var GCMURLs = map[string]string{
-	"testing":         "http://localhost:5556",
-	"development":     "https://android.googleapis.com/gcm/send",
-	"staging":         "https://android.googleapis.com/gcm/send",
-	"staging_sandbox": "https://android.googleapis.com/gcm/send",
-	"sandbox":         "https://android.googleapis.com/gcm/send",
-	"production":      "https://android.googleapis.com/gcm/send",
+	"testing":     "http://localhost:5556",
+	"development": "https://android.googleapis.com/gcm/send",
+	"staging":     "https://android.googleapis.com/gcm/send",
+	"production":  "https://android.googleapis.com/gcm/send",
 }
 
 // GCMMessage http://developer.android.com/guide/google/gcm/gcm.html#send-msg
@@ -54,8 +52,9 @@ type GCMResponse struct {
 	Results      []*GCMResult `json:"results"`
 	StatusCode   int          `json:"status_code"`
 	// set to -1 initially, if >= 0 then retry.
-	RetryAfter int   `json:"retry_after"`
-	Error      error `json:"error"`
+	RetryAfter   int   `json:"retry_after"`
+	Error        error `json:"error"`
+	ResponseTime int64 `json:"response_time"` // time in milliseconds
 }
 
 // Bytes implements interface Response.
@@ -87,15 +86,35 @@ type GCMClient struct {
 }
 
 // NewGCMClient ...
-func NewGCMClient(url, key string) (*GCMClient, error) {
-	if url == "" {
+func NewGCMClient(apiURL, key, proxy string) (*GCMClient, error) {
+	if apiURL == "" {
 		return nil, fmt.Errorf("url not provided")
+	}
+	tr := &http.Transport{
+		Dial: func(netw, addr string) (net.Conn, error) {
+			deadline := time.Now().Add(20 * time.Second)
+			c, err := net.DialTimeout(netw, addr, time.Second*20)
+			if err != nil {
+				return nil, err
+			}
+			c.SetDeadline(deadline)
+			return c, nil
+		},
+		DisableKeepAlives: true,
+	}
+	if proxy != "" {
+		// http://proxyIp:proxyPort
+		proxyUrl, err := url.Parse(proxy)
+		if err != nil {
+			return nil, err
+		}
+		tr.Proxy = http.ProxyURL(proxyUrl)
 	}
 
 	return &GCMClient{
 		key:  key,
-		http: &http.Client{},
-		url:  url,
+		http: &http.Client{Transport: tr},
+		url:  apiURL,
 	}, nil
 }
 
@@ -124,18 +143,15 @@ func (g *GCMMessage) SetPayload(key string, value string) {
 
 // Send ...
 func (c *GCMClient) Send(m *GCMMessage) (*GCMResponse, error) {
-	log.V(2).Infof("%+v", m)
+	ret := GCMResponse{RetryAfter: -1}
 	start := time.Now()
-	defer func() { log.Info("Hermes.GCM.Send ", time.Since(start)) }()
-
+	defer func() { ret.ResponseTime = time.Since(start).Nanoseconds() / 1000000 }()
 	j, err := json.Marshal(m)
 	if err != nil {
-		log.Error(err)
 		return nil, err
 	}
 	request, err := http.NewRequest("POST", c.url, bytes.NewBuffer(j))
 	if err != nil {
-		log.Error(err)
 		return nil, err
 	}
 	request.Header.Add("Authorization", fmt.Sprintf("key=%s", c.key))
@@ -143,46 +159,46 @@ func (c *GCMClient) Send(m *GCMMessage) (*GCMResponse, error) {
 
 	resp, err := c.http.Do(request)
 	if err != nil {
-		log.Error(err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Error(err)
 		return nil, err
 	}
 
-	ret := GCMResponse{RetryAfter: -1}
-
-	switch resp.StatusCode {
-	case 503, 500:
+	switch {
+	case resp.StatusCode >= 500 && resp.StatusCode <= 599:
+		// Errors in the 500-599 range (such as 500 or 503) indicate that
+		// there # was an internal error in the GCM connection server
+		// while trying to process the request, or that the
+		// server is temporarily unavailable
+		// (for example, because of timeouts). Sender must retry later,
+		// honoring any Retry-After header included in the response.
 		after := resp.Header.Get("Retry-After")
-		sleepFor, e := strconv.Atoi(after)
-		if e != nil {
-			log.Error(e)
-		}
+		sleepFor, _ := strconv.Atoi(after)
 		ret.RetryAfter = sleepFor
 		ret.Error = ErrRetry
-	case 401:
+	case resp.StatusCode == 401:
 		return nil, fmt.Errorf("unauthorized %s %s", resp.Status, string(body))
-	case 400:
+	case resp.StatusCode == 400:
+		// Indicates that the request could not be parsed as JSON,
+		// or it contained invalid fields (for instance, passing a
+		// string where a number was expected). The exact failure
+		// reason is described in the response and the problem
+		// should be addressed before the request can be retried.
 		return nil, fmt.Errorf("malformed JSON %s %s", resp.Status, string(body))
-	case 200:
+	case resp.StatusCode == 200:
 		err = json.Unmarshal(body, &ret)
 		if err != nil {
-			log.Error(err, string(body))
+			return nil, err
 		}
 	default:
 		after := resp.Header.Get("Retry-After")
-		sleepFor, e := strconv.Atoi(after)
-		if e != nil {
-			log.Error(e)
-		}
+		sleepFor, _ := strconv.Atoi(after)
 		ret.RetryAfter = sleepFor
 		ret.Error = ErrRetry
-		log.Errorf("unknown error %s %s", resp.Status, string(body))
 		return &ret, ret.Error
 	}
 

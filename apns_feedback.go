@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -92,7 +91,7 @@ func (a *APNSClient) ListenForFeedback() (err error) {
 		binary.Read(r, binary.BigEndian, &tokenLength)
 		binary.Read(r, binary.BigEndian, &deviceToken)
 		if tokenLength != 32 {
-			err := errors.New(fmt.Sprintf("token length should be equal to 32, got %d", tokenLength))
+			err := fmt.Errorf("token length should be equal to 32, got %d", tokenLength)
 			log.Error(err)
 			continue
 		}

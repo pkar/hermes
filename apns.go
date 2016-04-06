@@ -11,8 +11,6 @@ import (
 	"math/rand"
 	"net"
 	"time"
-
-	log "github.com/golang/glog"
 )
 
 const (
@@ -21,30 +19,32 @@ const (
 	maxPoolSize = 20
 )
 
-// APNSURLs map environment to gateway.
-var APNSURLs = map[string]string{
-	"testing":         "localhost:5555",
-	"development":     "gateway.sandbox.push.apple.com:2195",
-	"staging":         "gateway.sandbox.push.apple.com:2195",
-	"staging_sandbox": "gateway.sandbox.push.apple.com:2195",
-	"sandbox":         "gateway.sandbox.push.apple.com:2195",
-	"production":      "gateway.push.apple.com:2195",
-}
-
-// APNSStatusCodes are codes to message from apns.
-var APNSStatusCodes = map[uint8]string{
-	0:   "No errors encountered",
-	1:   "Processing error",
-	2:   "Missing device token",
-	3:   "Missing topic",
-	4:   "Missing payload",
-	5:   "Invalid token size",
-	6:   "Invalid topic size",
-	7:   "Invalid payload size",
-	8:   "Invalid token",
-	10:  "Shutdown",
-	255: "None (unknown)",
-}
+var (
+	APNSReadTimeout = 150
+	// APNSURLs map environment to gateway.
+	APNSURLs = map[string]string{
+		"testing":         "localhost:5555",
+		"development":     "gateway.sandbox.push.apple.com:2195",
+		"staging":         "gateway.sandbox.push.apple.com:2195",
+		"staging_sandbox": "gateway.sandbox.push.apple.com:2195",
+		"sandbox":         "gateway.sandbox.push.apple.com:2195",
+		"production":      "gateway.push.apple.com:2195",
+	}
+	// APNSStatusCodes are codes to message from apns.
+	APNSStatusCodes = map[uint8]string{
+		0:   "No errors encountered",
+		1:   "Processing error",
+		2:   "Missing device token",
+		3:   "Missing topic",
+		4:   "Missing payload",
+		5:   "Invalid token size",
+		6:   "Invalid topic size",
+		7:   "Invalid payload size",
+		8:   "Invalid token",
+		10:  "Shutdown",
+		255: "None (unknown)",
+	}
+)
 
 // APNSMessage alert is an interface here because it supports either a string
 // or a dictionary, represented within by an AlertDictionary struct.
@@ -142,12 +142,8 @@ type APNSConn struct {
 
 // NewAPNSClient ...
 func NewAPNSClient(gateway, cert, key string) (*APNSClient, error) {
-	start := time.Now()
-	defer func() { log.V(1).Info("Hermes.APNS.NewAPNSClient ", time.Since(start)) }()
-
 	p, err := newAPNSPool(gateway, cert, key)
 	if err != nil {
-		log.Error(err)
 		return nil, err
 	}
 	client := &APNSClient{
@@ -162,13 +158,9 @@ func NewAPNSClient(gateway, cert, key string) (*APNSClient, error) {
 
 // newAPNSConn is the actual connection to the remote server.
 func newAPNSConn(gateway, cert, key string) (*APNSConn, error) {
-	start := time.Now()
-	defer func() { log.V(2).Info("Hermes.APNS.newAPNSConn ", time.Since(start)) }()
-
 	conn := &APNSConn{}
 	crt, err := tls.X509KeyPair([]byte(cert), []byte(key))
 	if err != nil {
-		log.Error(err)
 		return nil, err
 	}
 	conn.tlsConn = nil
@@ -177,7 +169,7 @@ func newAPNSConn(gateway, cert, key string) (*APNSConn, error) {
 		Certificates:       []tls.Certificate{crt},
 	}
 
-	conn.readTimeout = 150 * time.Millisecond
+	conn.readTimeout = time.Duration(APNSReadTimeout) * time.Millisecond
 	conn.maxPayloadSize = 256
 	conn.connected = false
 	conn.gateway = gateway
@@ -187,9 +179,6 @@ func newAPNSConn(gateway, cert, key string) (*APNSConn, error) {
 
 // newAPNSPool ...
 func newAPNSPool(gateway, certificate, key string) (*APNSPool, error) {
-	start := time.Now()
-	defer func() { log.V(1).Info("Hermes.APNS.newAPNSPool ", time.Since(start)) }()
-
 	pool := make(chan *APNSConn, maxPoolSize)
 	n := 0
 	for x := 0; x < maxPoolSize; x++ {
@@ -197,7 +186,6 @@ func newAPNSPool(gateway, certificate, key string) (*APNSPool, error) {
 		if err != nil {
 			// Possible errors are missing/invalid environment which would be caught earlier.
 			// Most likely invalid cert.
-			log.Error(err)
 			return nil, err
 		}
 		pool <- c
@@ -249,9 +237,6 @@ func (c *APNSConn) Close() error {
 
 // connect ...
 func (c *APNSConn) connect() (err error) {
-	start := time.Now()
-	defer func() { log.V(1).Info("Hermes.APNS.connect ", time.Since(start)) }()
-
 	if c.connected {
 		return nil
 	}
@@ -262,7 +247,6 @@ func (c *APNSConn) connect() (err error) {
 
 	conn, err := net.Dial("tcp", c.gateway)
 	if err != nil {
-		log.Error(err)
 		return err
 	}
 
@@ -287,26 +271,19 @@ func (p *APNSPool) Release(conn *APNSConn) {
 
 // Send ...
 func (c *APNSClient) Send(apn *APNSPushNotification) (*APNSResponse, error) {
-	log.V(2).Infof("%+v", apn)
-	start := time.Now()
-	defer func() { log.Info("Hermes.APNS.Send ", time.Since(start)) }()
-
 	conn := c.Pool.Get()
 	defer c.Pool.Release(conn)
 	err := conn.connect()
 	if err != nil {
-		log.Error(err)
 		return nil, err
 	}
 
 	token, err := hex.DecodeString(apn.DeviceToken)
 	if err != nil {
-		log.Error(err)
 		return nil, err
 	}
 	payload, err := json.Marshal(apn.payload)
 	if err != nil {
-		log.Error(err)
 		return nil, err
 	}
 	if len(payload) > 256 {
@@ -328,7 +305,6 @@ func (c *APNSClient) Send(apn *APNSPushNotification) (*APNSResponse, error) {
 
 	_, err = conn.tlsConn.Write(buffer.Bytes())
 	if err != nil {
-		log.Errorf("%s %+v", err, apn)
 		conn.connected = false
 		apr.RetryAfter = 5
 		apr.Error = ErrRetry
@@ -343,7 +319,6 @@ func (c *APNSClient) Send(apn *APNSPushNotification) (*APNSResponse, error) {
 			// Only issue is, is timeout length long enough (150ms) for err response.
 			return apr, nil
 		}
-		log.Error(err)
 		if err == io.EOF {
 			conn.connected = false
 			apr.RetryAfter = 5
@@ -360,8 +335,7 @@ func (c *APNSClient) Send(apn *APNSPushNotification) (*APNSResponse, error) {
 			return apr, nil
 		case 1:
 			//1:   "Processing error"
-			err := fmt.Errorf("error code:%s %v", APNSStatusCodes[status], hex.EncodeToString(read[:n]))
-			log.Error(err)
+			// err := fmt.Errorf("error code:%s %v", APNSStatusCodes[status], hex.EncodeToString(read[:n]))
 			apr.RetryAfter = 5
 			apr.Error = ErrRetry
 		case 2, 3, 4, 6, 7:
@@ -371,16 +345,14 @@ func (c *APNSClient) Send(apn *APNSPushNotification) (*APNSResponse, error) {
 			//6:   "Invalid Topic Size",
 			//7:   "Invalid Payload Size",
 			err := fmt.Errorf("error code:%s %v", APNSStatusCodes[status], hex.EncodeToString(read[:n]))
-			log.Error(err)
 			apr.Error = err
 		case 5, 8:
 			//8:   "Invalid Token",
 			//5:   "Invalid Token Size",
-			log.Errorf("error code:%s %v", APNSStatusCodes[status], hex.EncodeToString(read[:n]))
+			// log.Errorf("error code:%s %v", APNSStatusCodes[status], hex.EncodeToString(read[:n]))
 			apr.Error = ErrRemoveToken
 		default:
 			err := fmt.Errorf("unknown error code %v", hex.EncodeToString(read[:n]))
-			log.Error(err)
 			apr.Error = err
 		}
 	}
