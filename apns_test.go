@@ -4,11 +4,10 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/binary"
+	"log"
 	"net"
 	"testing"
 	"time"
-
-	log "github.com/golang/glog"
 )
 
 const (

@@ -11,9 +11,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
-
-	log "github.com/golang/glog"
 )
 
 const (
@@ -103,17 +100,12 @@ func NewC2DMMessage(id string) *C2DMMessage {
 
 // Send https://developers.google.com/android/c2dm/
 func (c *C2DMClient) Send(m *C2DMMessage) (*C2DMResponse, error) {
-	log.V(2).Infof("%+v", m)
-	start := time.Now()
-	defer func() { log.Info("Hermes.C2DM.Send ", time.Since(start)) }()
 
 	if m.RegistrationID == "" {
-		log.Errorf("no registration id %+v", m)
 		return nil, fmt.Errorf("no registration id")
 	}
 
 	if len(m.Data) == 0 {
-		log.Errorf("no payload Defined %+v", m)
 		return nil, fmt.Errorf("no payload")
 	}
 
@@ -133,13 +125,11 @@ func (c *C2DMClient) Send(m *C2DMMessage) (*C2DMResponse, error) {
 
 	enc := data.Encode()
 	if len(enc) >= 1024 {
-		log.Errorf("Message Too Long (1024 max): %d", len(enc))
 		return nil, fmt.Errorf("message too big")
 	}
 
 	request, err := http.NewRequest("POST", c.url, strings.NewReader(enc))
 	if err != nil {
-		log.Error(err)
 		return nil, err
 	}
 
@@ -148,14 +138,12 @@ func (c *C2DMClient) Send(m *C2DMMessage) (*C2DMResponse, error) {
 
 	resp, err := c.http.Do(request)
 	if err != nil {
-		log.Errorf("%s %+v", err, resp)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Error(err)
 		return nil, err
 	}
 
@@ -165,7 +153,7 @@ func (c *C2DMClient) Send(m *C2DMMessage) (*C2DMResponse, error) {
 		after := resp.Header.Get("Retry-After")
 		sleepFor, e := strconv.Atoi(after)
 		if e != nil {
-			log.Error(e)
+			return nil, e
 		}
 		res.RetryAfter = sleepFor
 		res.Error = ErrRetry
@@ -182,7 +170,6 @@ func (c *C2DMClient) Send(m *C2DMMessage) (*C2DMResponse, error) {
 	//regexp.Compile(`id=(.*)`)
 	re, err := regexp.Compile(`Error=(.*)`)
 	if err != nil {
-		log.Errorf("c2dm %v %+v", err, m)
 		return nil, err
 	}
 	errs := re.FindStringSubmatch(string(body))
@@ -191,45 +178,27 @@ func (c *C2DMClient) Send(m *C2DMMessage) (*C2DMResponse, error) {
 		switch errs[1] {
 		case "QuotaExceeded":
 			// Too many messages, retry after a while.
-			log.Errorf("c2dm Quota Exceeded %+v %s", m, errs[1])
-
 			after := resp.Header.Get("Retry-After")
-			sleepFor, e := strconv.Atoi(after)
-			if e != nil {
-				log.Error(e)
-			}
+			sleepFor, _ := strconv.Atoi(after)
 			res.RetryAfter = sleepFor
 			res.Error = ErrRetry
 		case "DeviceQuotaExceeded":
 			//  Too many messages sent by the sender to a specific device. Retry after a while.
-			log.Errorf("c2dm Device Quota Exceeded %+v %s", m, errs[1])
-
 			after := resp.Header.Get("Retry-After")
-			sleepFor, e := strconv.Atoi(after)
-			if e != nil {
-				log.Error(e)
-			}
+			sleepFor, _ := strconv.Atoi(after)
 			res.RetryAfter = sleepFor
 			res.Error = ErrRetry
 		case "InvalidRegistration":
-			log.Errorf("c2dm Invalid Registration %+v %s", m, errs[1])
 			res.Error = ErrRemoveToken
 		case "NotRegistered":
-			log.Errorf("c2dm not registered %+v %s", m, errs[1])
 			res.Error = ErrRemoveToken
 		case "MessageTooBig":
-			log.Errorf("c2dm Message Too Big %+v %s", m, errs[1])
 			res.Error = fmt.Errorf(errs[1])
 		case "MissingCollapseKey":
-			log.Errorf("c2dm Missing Collapse Key %+v %s", m, errs[1])
 			res.Error = fmt.Errorf(errs[1])
 		default:
-			log.Errorf("c2dm Unknown Error %+v %s", m, errs[1])
 			after := resp.Header.Get("Retry-After")
-			sleepFor, e := strconv.Atoi(after)
-			if e != nil {
-				log.Error(e)
-			}
+			sleepFor, _ := strconv.Atoi(after)
 			res.RetryAfter = sleepFor
 			res.Error = ErrRetry
 		}

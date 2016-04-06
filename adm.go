@@ -7,9 +7,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strconv"
-	"time"
-
-	log "github.com/golang/glog"
 )
 
 var (
@@ -129,18 +126,12 @@ func NewADMClient(url, key string) (*ADMClient, error) {
 
 // Send ...
 func (c *ADMClient) Send(m *ADMMessage) (*ADMResponse, error) {
-	log.V(2).Infof("%+v", m)
-	start := time.Now()
-	defer func() { log.Info("Hermes.ADM.Send ", time.Since(start)) }()
-
 	j, err := json.Marshal(m)
 	if err != nil {
-		log.Error(err)
 		return nil, err
 	}
 	request, err := http.NewRequest("POST", fmt.Sprintf(c.url+ADMPath, m.RegistrationID), bytes.NewBuffer(j))
 	if err != nil {
-		log.Error(err)
 		return nil, err
 	}
 	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.Key))
@@ -151,18 +142,15 @@ func (c *ADMClient) Send(m *ADMMessage) (*ADMResponse, error) {
 
 	resp, err := c.http.Do(request)
 	if err != nil {
-		log.Error(err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Error(err)
 		return nil, err
 	}
 
-	log.V(2).Infof("%+v", string(body))
 	ret := &ADMResponse{StatusCode: resp.StatusCode}
 	switch resp.StatusCode {
 	case 503, 500:
@@ -179,7 +167,6 @@ func (c *ADMClient) Send(m *ADMMessage) (*ADMResponse, error) {
 		ret.RetryAfter = 0
 		err = json.Unmarshal(body, &ret)
 		if err != nil {
-			log.Error(err, string(body))
 			return nil, err
 		}
 
@@ -193,21 +180,18 @@ func (c *ADMClient) Send(m *ADMMessage) (*ADMResponse, error) {
 		// MessageTooLarge
 		err = json.Unmarshal(body, &ret)
 		if err != nil {
-			log.Error(err, string(body))
 			return nil, err
 		}
 	case 401:
 		// AccessTokenExpired
 		err = json.Unmarshal(body, &ret)
 		if err != nil {
-			log.Error(err, string(body))
 			return nil, err
 		}
 		ret.Error = ErrTokenExpired
 	case 400:
 		err = json.Unmarshal(body, &ret)
 		if err != nil {
-			log.Error(err, string(body))
 			return nil, err
 		}
 		switch ret.Reason {
@@ -217,7 +201,6 @@ func (c *ADMClient) Send(m *ADMMessage) (*ADMResponse, error) {
 	case 200:
 		err = json.Unmarshal(body, &ret)
 		if err != nil {
-			log.Error(err, string(body))
 			return nil, err
 		}
 	default:
@@ -226,7 +209,6 @@ func (c *ADMClient) Send(m *ADMMessage) (*ADMResponse, error) {
 		if err != nil {
 			ret.RetryAfter = i
 		}
-		log.Errorf("unknown response: %d %s", resp.StatusCode, string(body))
 		ret.Error = ErrRetry
 	}
 	ret.RequestID = resp.Header.Get("X-Amzn-RequestId")

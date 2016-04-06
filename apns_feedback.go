@@ -5,11 +5,9 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"encoding/hex"
-	"fmt"
+	"log"
 	"net"
 	"time"
-
-	log "github.com/golang/glog"
 )
 
 // Wait at most this many seconds for feedback data from Apple.
@@ -35,9 +33,9 @@ func (a *APNSClient) RunFeedback() error {
 		for {
 			select {
 			case resp := <-APNSFeedbackChannel:
-				log.Info("- recv'd:", resp.DeviceToken)
+				log.Println("- recv'd:", resp.DeviceToken)
 			case <-APNSShutdownChannel:
-				log.Info("- nothing returned from the feedback service")
+				log.Println("- nothing returned from the feedback service")
 			}
 		}
 	}()
@@ -48,7 +46,6 @@ func (a *APNSClient) RunFeedback() error {
 func (a *APNSClient) ListenForFeedback() (err error) {
 	cert, err := tls.X509KeyPair([]byte(a.Certificate), []byte(a.Key))
 	if err != nil {
-		log.Error(err)
 		return err
 	}
 
@@ -59,7 +56,6 @@ func (a *APNSClient) ListenForFeedback() (err error) {
 
 	conn, err := net.Dial("tcp", a.Gateway)
 	if err != nil {
-		log.Error(err)
 		return err
 	}
 	defer conn.Close()
@@ -68,7 +64,6 @@ func (a *APNSClient) ListenForFeedback() (err error) {
 	tlsConn := tls.Client(conn, conf)
 	err = tlsConn.Handshake()
 	if err != nil {
-		log.Error(err)
 		return err
 	}
 
@@ -79,7 +74,6 @@ func (a *APNSClient) ListenForFeedback() (err error) {
 	for {
 		_, err := tlsConn.Read(buffer)
 		if err != nil {
-			log.Error(err)
 			APNSShutdownChannel <- true
 			break
 		}
@@ -91,8 +85,7 @@ func (a *APNSClient) ListenForFeedback() (err error) {
 		binary.Read(r, binary.BigEndian, &tokenLength)
 		binary.Read(r, binary.BigEndian, &deviceToken)
 		if tokenLength != 32 {
-			err := fmt.Errorf("token length should be equal to 32, got %d", tokenLength)
-			log.Error(err)
+			//err := fmt.Errorf("token length should be equal to 32, got %d", tokenLength)
 			continue
 		}
 		resp.DeviceToken = hex.EncodeToString(deviceToken)

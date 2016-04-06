@@ -3,11 +3,10 @@ package hermes
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	log "github.com/golang/glog"
 )
 
 var (
